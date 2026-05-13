@@ -11,6 +11,8 @@ class DeviceSpec:
     memory_bandwidth_gbps: float
     memory_capacity_gb: float
     interconnect_bandwidth_gbps: float
+    compute_efficiency: float = 0.45
+    memory_efficiency: float = 0.65
 
 
 @dataclass
@@ -24,6 +26,7 @@ class NodeSpec:
 class ClusterSpec:
     nodes: List[NodeSpec]
     cross_node_bandwidth_gbps: float
+    cross_node_latency_us: float = 5.0
     metadata: Dict[str, object] = field(default_factory=dict)
 
     @property

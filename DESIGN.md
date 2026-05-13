@@ -1,89 +1,63 @@
 # 模型框架并行仿真系统设计文档
 
 ## 1. 目标与范围
-本项目构建一个“类似 Calculon / Vidur 思路”的并行仿真框架，用于在不实际训练/推理的情况下，快速评估模型在不同硬件、并行策略、调度策略与参数组合下的性能、通信与瓶颈。
+本项目构建一个参考 Calculon / Vidur 思路的并行仿真框架，用于在不真实执行训练/推理时，评估不同硬件、并行、调度与参数组合下的性能与瓶颈。
 
-### 覆盖能力（对应需求 1~10）
-1. **模型输入**：已支持 ONNX 输入，使用 `LoaderRegistry` 预留多格式扩展（TorchScript/MLIR/自定义 IR）。
-2. **指标输出**：输出 FLOPs、访存规模/模式、通信需求。
-3. **硬件自定义**：支持设备、节点、集群参数化定义。
-4. **并行策略探索**：支持 TP/PP/DP/SP 策略空间枚举。
-5. **调度策略探索**：支持不同调度策略（重叠通信、微批配置）。
-6. **参数组合探索**：支持任意 `param_grid` 网格搜索。
-7. **多节点部署探索**：支持多节点集群建模与跨节点带宽建模。
-8. **模拟执行 + 甘特图**：输出时间线并可生成 ASCII 甘特图。
-9. **跨硬件性能预测**：可替换 `ClusterSpec` 做不同硬件预测对比。
-10. **瓶颈分析 + 建议**：按 compute/comm/memory 主导项给出优化建议。
+## 2. 已实现能力（对应需求1~10）
+1. ONNX 模型输入 + 多模型格式扩展接口（`LoaderRegistry`）。
+2. 输出计算量、访存模式、通信需求（`ModelMetrics`）。
+3. 支持自定义硬件（设备/节点/集群）。
+4. 支持多并行策略探索（TP/PP/DP/SP）。
+5. 支持多调度策略探索（重叠通信、微批大小）。
+6. 支持参数网格搜索。
+7. 支持多节点部署探索（跨节点带宽/时延）。
+8. 支持模拟执行并生成多资源甘特图。
+9. 支持不同硬件环境性能预测。
+10. 支持瓶颈分析与优化建议。
 
-## 2. 架构总览
-- `parallel_sim/io`：模型加载层（ONNX + 扩展接口）。
-- `parallel_sim/models`：统一模型图抽象 `ModelGraph` / `ModelOp`。
-- `parallel_sim/hardware`：硬件抽象（设备/节点/集群）。
-- `parallel_sim/parallel`：并行策略定义与搜索空间。
-- `parallel_sim/scheduler`：调度策略定义。
-- `parallel_sim/analysis`：计算量、通信、访存与瓶颈分析。
-- `parallel_sim/simulation`：仿真执行引擎，生成阶段时间分解。
-- `parallel_sim/optimization`：联合搜索器（策略 + 调度 + 参数）。
-- `parallel_sim/report.py`：摘要和甘特图输出。
+## 3. 升级后的成本模型
 
-## 3. 核心数据模型
-### 3.1 模型图
-- `ModelOp`：描述算子类型、输入输出、属性、输出张量形状。
-- `ModelGraph`：算子列表 + 元数据，支持整体 FLOPs 和输出访存估算。
+### 3.1 计算成本（Compute）
+- 算子级 FLOPs 估计（MatMul/Conv 特化）。
+- 集群有效算力：`sum(peak_tflops * compute_efficiency)`。
+- 计算时间：`compute_time = flops / effective_peak_flops`。
 
-### 3.2 硬件模型
-- `DeviceSpec`：峰值算力、显存带宽、容量、互联带宽。
-- `NodeSpec`：单节点多设备拓扑。
-- `ClusterSpec`：多节点集群 + 跨节点带宽。
+### 3.2 访存成本（Memory）
+- 从输出字节推导激活字节近似（`activation_bytes`）。
+- 集群有效带宽：`sum(memory_bw * memory_efficiency)`。
+- 访存时间：`memory_time = activation_bits / effective_memory_bw`。
 
-### 3.3 策略模型
-- `ParallelStrategy`：TP/PP/DP/SP 组合并做设备可行性校验。
-- `SchedulePolicy`：是否通信重叠、微批粒度等调度属性。
+### 3.3 通信成本（Communication）
+- TP/DP 通信量粗分解。
+- 通信时间采用 α-β 模型 ring all-reduce 近似：
+  `2*(p-1)*(alpha + n/(p*beta))`。
+- 区分节点内通信（高带宽低时延）与节点间通信（低带宽高时延）。
+- 调度策略可通过 overlap 因子降低通信暴露时间。
 
-## 4. 仿真与估计方法
-### 4.1 模型指标
-- FLOPs：按算子类型估算（MatMul/Conv 特化 + fallback）。
-- Output memory：按输出张量总元素量估算。
-- Communication：基于 TP 粗估 all-reduce/all-gather 量级。
-- Memory pattern：按图规模判断 `streaming` / `layerwise_reuse`。
+### 3.4 Pipeline 气泡惩罚
+- 引入 `bubble_penalty = 1 + (pp-1)/(pp*micro_batch)`。
+- 总时延：`(compute + memory + comm) * bubble_penalty`。
 
-### 4.2 执行时间模型
-总时延由三部分线性分解：
-- `compute_time = FLOPs / total_peak_tflops`
-- `memory_time = bytes / total_mem_bandwidth`
-- `comm_time = comm_bytes / effective_interconnect_bw`
+## 4. 架构模块
+- `parallel_sim/io`: 模型输入与扩展。
+- `parallel_sim/models`: 图表示与算子估算。
+- `parallel_sim/hardware`: 硬件配置与效率参数。
+- `parallel_sim/parallel`: 并行策略空间。
+- `parallel_sim/scheduler`: 调度策略空间。
+- `parallel_sim/analysis`: 指标与瓶颈分析。
+- `parallel_sim/simulation`: 核心仿真引擎。
+- `parallel_sim/optimization`: 联合搜索。
+- `parallel_sim/report`: 摘要与甘特图。
 
-调度策略通过 `overlap_communication` 改写有效通信带宽，体现通信计算重叠收益。
+## 5. 后续可增强点
+- 细分 collective（all-gather/reduce-scatter）和拓扑（ring/tree）。
+- 按算子类别接入经验效率模型与 profile 校准。
+- 增加多目标优化（吞吐/时延/成本/能耗）。
+- 输出 Chrome tracing/可视化前端。
 
-## 5. 寻优流程
-`Explorer.explore()` 执行联合搜索：
-1. 枚举并行策略；
-2. 枚举调度策略；
-3. 枚举参数网格（batch/seq 等）；
-4. 过滤不可行策略；
-5. 调用仿真引擎得分；
-6. 按总时延排序输出 Pareto 候选（当前按单目标 latency）。
 
-## 6. 扩展点设计
-- **模型输入扩展**：新增 `ModelLoader` 实现，并注册到 `LoaderRegistry`。
-- **算子级精细模型**：扩展 `ModelOp.estimate_flops()` + 引入 kernel-level 成本库。
-- **通信模型增强**：按拓扑（ring/tree/dragonfly）选择不同代价函数。
-- **调度策略增强**：支持 stage-aware pipeline / EDF / critical-path 优化。
-- **搜索增强**：从网格搜索升级到贝叶斯优化/遗传算法/多目标优化。
-- **可视化增强**：输出 JSON trace（Chrome tracing）或 matplotlib 甘特图。
-
-## 7. 与 Calculon / Vidur 思路对齐
-- 使用**结构化硬件与策略建模**（而非写死脚本）。
-- 支持**what-if 仿真探索**（并行维度 + 参数维度 + 调度维度）。
-- 使用**阶段化执行估计**并输出性能解释（瓶颈+建议）。
-
-## 8. 当前实现边界
-- ONNX shape 推断使用轻量 fallback；生产级建议接入完整 shape inference。
-- 通信模型目前为简化模型；实际应区分 collective 类型和分层拓扑。
-- 尚未接入真实运行 trace 校准；建议通过 profiling 数据拟合参数。
-
-## 9. 快速使用
-```bash
-python3 main.py
-```
-输出包括：模型指标、最优策略、性能摘要、甘特图。
+## 6. 本轮新增
+- 新增配置系统：`parallel_sim/config/schema.py` + `parallel_sim/config/loader.py`，支持JSON配置和基础校验。
+- 新增内存时间线：`parallel_sim/simulation/memory.py`，输出weights/grads/optimizer/activations快照。
+- 新增示例配置：`examples/simulation_config.json`。
+- 新增基础测试：`tests/test_config_and_memory.py`。

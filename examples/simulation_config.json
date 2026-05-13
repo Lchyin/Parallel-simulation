@@ -1,0 +1,21 @@
+{
+  "model": {
+    "path": "demo.onnx",
+    "format": "onnx"
+  },
+  "hardware": {
+    "cross_node_bandwidth_gbps": 400,
+    "cross_node_latency_us": 5,
+    "nodes": [
+      {
+        "name": "node0",
+        "devices": [
+          {"name": "gpu0", "peak_tflops": 120, "memory_bandwidth_gbps": 3000, "memory_capacity_gb": 80, "interconnect_bandwidth_gbps": 900, "compute_efficiency": 0.45, "memory_efficiency": 0.65},
+          {"name": "gpu1", "peak_tflops": 120, "memory_bandwidth_gbps": 3000, "memory_capacity_gb": 80, "interconnect_bandwidth_gbps": 900, "compute_efficiency": 0.45, "memory_efficiency": 0.65}
+        ]
+      }
+    ]
+  },
+  "strategy": {"name": "cfg_strategy", "tp": 2, "pp": 1, "dp": 1, "sp": false},
+  "schedule": {"name": "cfg_schedule", "overlap_communication": true, "micro_batch_size": 2}
+}
