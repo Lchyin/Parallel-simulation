@@ -3,38 +3,45 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict
 
+from parallel_sim.analysis.efficiency import EfficiencyTable, extract_size_hint
 from parallel_sim.models.graph import ModelGraph
 
 
 @dataclass
 class ModelMetrics:
     flops: float
+    effective_flops: float
     output_memory_bytes: int
     activation_bytes: int
-    communication_bytes: int
+    tp_ar_bytes: int
+    tp_ag_bytes: int
+    dp_rs_bytes: int
+    dp_ar_bytes: int
     memory_pattern: str
 
 
-def estimate_model_metrics(model: ModelGraph, tensor_parallel: int = 1, data_parallel: int = 1) -> ModelMetrics:
+def estimate_model_metrics(model: ModelGraph, tensor_parallel: int = 1, data_parallel: int = 1, dtype: str = "fp16") -> ModelMetrics:
+    table = EfficiencyTable()
     flops = model.total_flops
+    eff_weighted = 0.0
+    for op in model.ops:
+        hint = extract_size_hint(op.attrs)
+        eff = table.query(op.op_type, dtype, hint)
+        eff_weighted += op.estimate_flops() * eff
+
     out_bytes = model.total_output_memory_bytes
     activation_bytes = int(out_bytes * 1.5)
 
-    # 粗粒度通信需求分解：
-    # - TP: 近似 all-reduce/all-gather，规模与 (tp-1)/tp 成正比
-    # - DP: 梯度 all-reduce，规模与参数/激活量近似相关（此处以 out_bytes 代理）
-    tp_bytes = int(out_bytes * max(tensor_parallel - 1, 0) / max(tensor_parallel, 1))
-    dp_bytes = int(out_bytes * max(data_parallel - 1, 0) / max(data_parallel, 1))
-    communication_bytes = tp_bytes + dp_bytes
+    tp_factor = max(tensor_parallel - 1, 0) / max(tensor_parallel, 1)
+    dp_factor = max(data_parallel - 1, 0) / max(data_parallel, 1)
+
+    tp_ar_bytes = int(out_bytes * tp_factor)
+    tp_ag_bytes = int(out_bytes * tp_factor)
+    dp_rs_bytes = int(out_bytes * dp_factor)
+    dp_ar_bytes = int(out_bytes * dp_factor)
 
     memory_pattern = "streaming" if len(model.ops) > 32 else "layerwise_reuse"
-    return ModelMetrics(
-        flops=flops,
-        output_memory_bytes=out_bytes,
-        activation_bytes=activation_bytes,
-        communication_bytes=communication_bytes,
-        memory_pattern=memory_pattern,
-    )
+    return ModelMetrics(flops, eff_weighted, out_bytes, activation_bytes, tp_ar_bytes, tp_ag_bytes, dp_rs_bytes, dp_ar_bytes, memory_pattern)
 
 
 def bottleneck_analysis(runtime_s: float, compute_s: float, comm_s: float, memory_s: float) -> Dict[str, str]:

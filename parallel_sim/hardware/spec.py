@@ -27,6 +27,8 @@ class ClusterSpec:
     nodes: List[NodeSpec]
     cross_node_bandwidth_gbps: float
     cross_node_latency_us: float = 5.0
+    comm_alpha_us: float = 5.0
+    comm_beta_gbps: float = 400.0
     metadata: Dict[str, object] = field(default_factory=dict)
 
     @property

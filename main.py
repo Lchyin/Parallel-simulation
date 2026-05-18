@@ -52,7 +52,7 @@ def main() -> None:
     )
     best = records[0]
     metrics = estimate_model_metrics(model, best.strategy.tensor_parallel, best.strategy.data_parallel)
-    mem_timeline = estimate_memory_timeline(model, metrics)
+    mem_timeline = estimate_memory_timeline(model, metrics, best.strategy.pipeline_parallel, best.schedule.micro_batch_size, recompute=True)
 
     print("Model metrics:", metrics)
     print("Best:", best.strategy.to_dict(), best.schedule)

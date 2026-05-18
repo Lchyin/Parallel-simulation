@@ -1,4 +1,4 @@
-# 模型框架并行仿真系统设计文档
+# 模型框架并行仿真系统设计文档（升级版）
 
 ## 1. 目标与范围
 本项目构建一个参考 Calculon / Vidur 思路的并行仿真框架，用于在不真实执行训练/推理时，评估不同硬件、并行、调度与参数组合下的性能与瓶颈。
@@ -61,3 +61,9 @@
 - 新增内存时间线：`parallel_sim/simulation/memory.py`，输出weights/grads/optimizer/activations快照。
 - 新增示例配置：`examples/simulation_config.json`。
 - 新增基础测试：`tests/test_config_and_memory.py`。
+
+## 7. 新增能力（collective/效率拟合/校准/细粒度内存）
+- collective 级通信模型：分离 all-reduce / all-gather / reduce-scatter。
+- 算子效率表：按 `op_type + dtype + shape_hint(mkn)` 选择效率曲线。
+- 硬件校准流程：基于 CSV（实测吞吐/带宽/通信时延）自动拟合 compute/memory/comm 参数。
+- 内存时间线升级：支持 `stage + micro-batch` 粒度及 `recompute` 开关。
