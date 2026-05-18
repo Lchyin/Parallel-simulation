@@ -1,0 +1,31 @@
+from parallel_sim.analysis.metrics import estimate_model_metrics
+from parallel_sim.calibration import calibrate_from_csv
+from parallel_sim.config.loader import ConfigLoader
+from parallel_sim.models.graph import ModelGraph, ModelOp, TensorShape
+from parallel_sim.simulation.memory import estimate_memory_timeline
+
+
+def test_config_loader():
+    cfg = ConfigLoader().load("examples/simulation_config.json")
+    assert cfg.strategy.tensor_parallel == 2
+    assert cfg.schedule.micro_batch_size == 2
+    assert cfg.cluster.total_devices == 2
+
+
+def test_memory_timeline_stage_microbatch_recompute():
+    model = ModelGraph(
+        name="t",
+        ops=[ModelOp("mm", "MatMul", ["a"], ["b"], TensorShape([8, 8]), {"m": 8, "k": 8, "n": 8})],
+    )
+    metrics = estimate_model_metrics(model, 1, 1)
+    snapshots = estimate_memory_timeline(model, metrics, pipeline_stages=2, micro_batches=4, recompute=True)
+    assert len(snapshots) == 8
+    assert all(s.total_bytes > 0 for s in snapshots)
+
+
+def test_calibration():
+    c = calibrate_from_csv("examples/calibration_sample.csv")
+    assert 0 < c.compute_efficiency < 1
+    assert 0 < c.memory_efficiency < 1
+    assert c.comm_alpha_us > 0
+    assert c.comm_beta_gbps > 0

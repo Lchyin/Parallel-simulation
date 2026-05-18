@@ -1,0 +1,4 @@
+peak_tflops,achieved_tflops,peak_mem_gbps,achieved_mem_gbps,msg_bytes,comm_time_us
+120,54,3000,1850,104857600,280
+120,57,3000,1900,209715200,540
+120,52,3000,1760,52428800,150
